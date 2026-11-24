@@ -1,0 +1,1121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Trailblazer Quest</title>
+<style>
+html,body{margin:0;min-height:100%;background:#081820;color:#e0f8d0;font-family:"Courier New",monospace}
+body{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:10px;box-sizing:border-box;user-select:none;-webkit-user-select:none;touch-action:manipulation;min-height:100vh}
+#wrap{width:min(100%,640px)}
+canvas{width:100%;height:auto;display:block;image-rendering:pixelated;border:6px solid #346856;border-radius:12px;box-sizing:border-box;background:#e0f8d0}
+#pad{display:flex;justify-content:space-between;align-items:center;width:min(100%,420px)}
+.dpad{display:grid;grid-template-columns:repeat(3,44px);grid-template-rows:repeat(3,44px);gap:2px}
+.btn{background:#346856;color:#e0f8d0;border:2px solid #88c070;border-radius:10px;font:bold 16px "Courier New",monospace;display:flex;align-items:center;justify-content:center;cursor:pointer}
+.btn:active,.btn.on{background:#88c070;color:#081820}
+.ab{display:flex;gap:10px;align-items:center}
+.ab .btn{width:54px;height:54px;border-radius:50%}
+.sm{width:64px!important;height:30px!important;border-radius:8px!important;font-size:12px!important}
+#hint{font-size:12px;color:#88c070;text-align:center;max-width:640px;line-height:1.4}
+</style>
+</head>
+<body>
+<div id="wrap"><canvas id="c" width="640" height="576"></canvas></div>
+<div id="pad">
+  <div class="dpad">
+    <span></span><div class="btn" data-b="up">&#9650;</div><span></span>
+    <div class="btn" data-b="left">&#9664;</div><span></span><div class="btn" data-b="right">&#9654;</div>
+    <span></span><div class="btn" data-b="down">&#9660;</div><span></span>
+  </div>
+  <div class="btn sm" data-b="menu">MENU</div>
+  <div class="ab"><div class="btn" data-b="b">B</div><div class="btn" data-b="a">A</div></div>
+</div>
+<div id="hint">Keyboard: arrows or WASD to move &middot; Z, Space or Enter = A (talk / confirm) &middot; X = B (back) &middot; M or Esc = menu</div>
+
+<script>
+'use strict';
+/* ==========================================================================
+   TRAILBLAZER QUEST
+   A short Game Boy style RPG. Everything you may want to edit lives in the
+   CONTENT section below: names (CAST), moves, bosses, and all story text.
+   Names are written once in CAST and used everywhere as {TOKENS}, so a change
+   there updates the whole game.
+   ========================================================================== */
+
+/* ---------- CONTENT: names ---------- */
+const CAST = {
+  P: 'QUINN',
+  GUIDE: 'PROF. WHETTEN',
+  COLE: 'COLE', ELISE: 'ELISE', KEFA: 'KEFA',
+  PROF1: 'PROF. SCARPULLA', PROF2: 'PROF. FU',
+  CLIENT: 'THE ENERGY ACCELERATOR',
+  KATRINA: 'KATRINA HOLT', LIZ: 'LIZ OWENS', BEN: 'BEN HOLLEY',
+  PAUL: 'PAUL LYON', JEFF: 'JEFF GROOM', MAILE: 'MAILE KEONE',
+  EMPLOYER: 'L3HARRIS',
+  GAME: 'TRAILBLAZER QUEST',
+  AUTHOR: 'QUINN MCCARN'
+};
+
+/* ---------- CONTENT: moves ---------- */
+/* base = [min,max] damage. recoil = Resolve lost by the user. heal = Resolve gained. */
+const MOVES = {
+  push:   { name: 'PUSH THROUGH', base: [13, 17], recoil: 8, learned: false,
+            desc: 'Compete. Fast and loud. Costs Resolve.' },
+  notes:  { name: 'TAKE NOTES', base: [7, 9], heal: 5, learned: false,
+            desc: 'Control. Steady record, steady nerves.' },
+  askwhat:{ name: 'ASK WHAT', base: [9, 11], learned: true,
+            desc: 'Ask what would need to be true, not why.',
+            rule: 'When I get pushback, I ask WHAT would need to be true for this to work for you, not WHY it is not working. I also find a loving critic early instead of waiting for something to go wrong.',
+            when: 'A lukewarm reaction, a disagreement, or a gap between what I meant and how it landed.',
+            check: 'Did I ask what this week, or did I explain my intent?' },
+  checkpoint:{ name: 'CHECKPOINT', base: [9, 11], learned: true,
+            desc: 'Say the dates out loud, plus the backup plan.',
+            rule: 'When I commit, I say the checkpoint dates out loud and say what happens if I miss. Silence is not a backup plan.',
+            when: 'Any promise to a team, a client, or the guys.',
+            check: 'What did I promise this week, and who knows the checkpoint?' },
+  reframe:{ name: 'REFRAME', base: [9, 11], learned: true,
+            desc: 'Rewrite the problem before solving it.',
+            rule: 'Before I solve, I write my own definition of the problem, ask someone outside the team what is in the way, and question the objective. When I hand off work I give the Purpose, the Outcome and let them own the Process.',
+            when: 'Right after I am handed a problem, and before I print a single flyer.',
+            check: 'What problem am I sure about, and who outside the team did I ask?' },
+  buyer:  { name: 'BUYER FIRST', base: [9, 11], learned: true,
+            desc: 'Start with who decides and what they need.',
+            rule: 'Value is the decision my work helps someone make. I start with who decides and what they need, say "not yet" when the evidence says so, and use AI to sharpen my thinking while the judgment stays mine.',
+            when: 'When I am tempted by the interesting detail instead of the client question.',
+            check: 'What decision did my work help someone make this week?' },
+  speakup:{ name: 'SPEAK UP', base: [9, 11], learned: true,
+            desc: 'Say it early, specific, out loud.',
+            rule: 'Say it early and say it specifically: what is going on and what I need. A team cannot fix what it cannot see, and neither can I.',
+            when: 'When I feel left out, stuck, or run down, and the urge is to wait it out.',
+            check: 'Is there something I am sitting on that I should say today?' }
+};
+
+/* ---------- CONTENT: bosses ---------- */
+const BOSSES = {
+  mirror: {
+    name: 'THE MIRROR', hp: 60, art: 'mirror', gym: 'MIRROR HALL', teaches: 'askwhat',
+    look: { hair: 2, shirt: 0, glasses: true },
+    weak: ['askwhat'], semi: [], resist: ['push'],
+    pre: ['I know my intent. That is all I need to know about me.',
+          'The Mirror only shows you what you already believe.'],
+    hint: 'The Mirror loves certainty and hates curiosity. Pushing harder bounces off. Try a question that starts with WHAT.',
+    weakText: 'A question that starts with WHAT! The glass cracks.',
+    resistText: 'You push, and the Mirror just shows you pushing.',
+    attacks: [
+      { name: 'CERTAINTY', text: 'CERTAINTY! "I know exactly what I meant." Nobody else was asked.', dmg: [8, 11] },
+      { name: 'DEFENSIVE WHY', text: 'DEFENSIVE WHY! "Why do people see me that way?" You get stuck on why instead of asking what.', dmg: [9, 12] },
+      { name: 'SELF-EXPLAINING', text: 'SELF-EXPLAINING! You explain your intent and miss how it landed.', dmg: [8, 10] }
+    ],
+    win: ['The Mirror cracks, and for once it shows someone else in the frame.',
+          'The gap was small, but it sat exactly where the quiz said it would.']
+  },
+  promise: {
+    name: 'THE PROMISE', hp: 70, art: 'calendar', gym: 'PROMISE HALL', teaches: 'checkpoint',
+    look: { hair: 3, shirt: 1 },
+    weak: ['checkpoint'], semi: [], resist: ['push'],
+    pre: ['I am busy. They will understand.',
+          'The Promise never writes a date down. It just waits for someone to ask.'],
+    hint: 'The Promise survives on silence: no dates, no backup plan. Say the checkpoint out loud.',
+    weakText: 'Dates out loud, backup plan named! The Promise has nowhere to hide.',
+    resistText: 'Working harder at the last minute barely dents it.',
+    attacks: [
+      { name: 'BUSY EXCUSE', text: 'BUSY EXCUSE! Being busy sounds like a reason. It is not.', dmg: [9, 12] },
+      { name: 'SOFT DEADLINE', text: 'SOFT DEADLINE! The date only lives in your head.', dmg: [10, 13] },
+      { name: 'SILENT SLIP', text: 'SILENT SLIP! Nobody knows it is slipping until someone asks.', dmg: [9, 12] }
+    ],
+    win: ['The Promise is kept, or at least, now it is visible.',
+          'The guys calling me out was fair. The fix was following through.']
+  },
+  problem: {
+    name: 'THE FLYER PRINTER', hp: 80, art: 'flyers', gym: 'PROBLEM HALL', teaches: 'reframe',
+    look: { hair: 2, shirt: 2 },
+    weak: ['reframe'], semi: ['askwhat'], resist: ['push'],
+    pre: ['Attendance is down! More flyers! More posts! Email every troop!',
+          'The Flyer Printer solves problems very, very fast. Usually the wrong one.'],
+    hint: 'It never asks what the problem is. Rewrite the problem, and ask the outsider who stayed home.',
+    weakText: 'The problem is redefined! The flyers go flying.',
+    semiText: 'Asking the outsider helps. It stings a little.',
+    resistText: 'Pushing the same plan harder just prints more flyers.',
+    attacks: [
+      { name: 'PRINT MORE FLYERS', text: 'PRINT MORE FLYERS! Every idea assumes people just did not know.', dmg: [10, 13] },
+      { name: 'SOLVE IT FAST', text: 'SOLVE IT FAST! Action feels like progress. It is not a plan.', dmg: [10, 14] },
+      { name: 'ASSUMED CAUSE', text: 'ASSUMED CAUSE! Nobody wrote down their own version of the problem.', dmg: [11, 13] }
+    ],
+    win: ['The Flyer Printer powers down. Turns out Scouts wanted to come but could not get there.',
+          'A carpool sign-up beat a thousand flyers.']
+  },
+  rock: {
+    name: 'THE SHINY ROCK', hp: 90, art: 'gem', gym: 'VALUE HALL', teaches: 'buyer',
+    look: { hair: 3, shirt: 0, glasses: true },
+    weak: ['buyer'], semi: ['reframe'], resist: ['push'],
+    pre: ['It survives 500 degrees! Does that not impress you?',
+          'The Shiny Rock is fascinating, and it has never once met a buyer.'],
+    hint: 'It wants you staring at the technology. Lead with the buyer and the decision they need to make.',
+    weakText: 'Who decides, and what do they need? The shine fades.',
+    semiText: 'A better problem helps, but the buyer is the real answer.',
+    resistText: 'Pushing harder at the interesting detail just makes it glow.',
+    attacks: [
+      { name: '500 DEGREE FLEX', text: '500 DEGREE FLEX! It performs beautifully and answers nothing.', dmg: [11, 14] },
+      { name: 'COOL TANGENT', text: 'COOL TANGENT! A fascinating detail pulls the whole team off course.', dmg: [11, 15] },
+      { name: 'BUSY WORK', text: 'BUSY WORK! A full calendar looks like value. It is not.', dmg: [10, 14] }
+    ],
+    win: ['The Shiny Rock dims. A well-evidenced "not yet" is as useful as a yes.',
+          'The client does not need a rock. They need to know which buyer comes first.']
+  },
+  quiet: {
+    name: 'THE QUIET', hp: 110, art: 'cloud', gym: 'HINDSIGHT TOWER', teaches: null,
+    look: { hair: 3, shirt: 3 },
+    weak: ['speakup'], semi: ['askwhat', 'checkpoint'], resist: ['push', 'notes'],
+    pre: ['...I grow where you are not looking.',
+          '{P}: Over the summer it was 45 hours of work a week and 15 of MMA. I figured I could just push through.',
+          'The Quiet feeds on exactly that.'],
+    hint: 'The Quiet feeds on silence. Say it out loud, and say it early.',
+    weakText: 'You say it out loud! The Quiet shrinks, just a little.',
+    semiText: 'That helps, but it is not the thing it fears.',
+    resistText: 'Pushing through alone only feeds it.',
+    phase2: 'The Quiet changes shape. Burnout does not keep a short fuse. It can sit, grow and look like apathy.',
+    attacks: [
+      { name: "I'M FINE", text: '"I\'M FINE." You say it, and nobody gets a chance to help.', dmg: [10, 13] },
+      { name: 'ANOTHER DAY IN PARADISE', text: '"ANOTHER DAY IN PARADISE." Cheerful enough that nobody steps in.', dmg: [11, 14] },
+      { name: 'RUNNING ON EMPTY', text: 'RUNNING ON EMPTY! 45 hours of work and 15 of training, and the semester has not even started.', dmg: [11, 14] }
+    ],
+    attacks2: [
+      { name: 'APATHY', text: 'APATHY! You skip class, skip homework, and settle for mediocrity instead of trying to soar.', dmg: [12, 15] },
+      { name: 'HYPOCRITE', text: 'HYPOCRITE! The mental health chair who cannot ask for help.', dmg: [12, 16] },
+      { name: 'GO IT ALONE', text: 'GO IT ALONE! Carrying a load that only exists in your head feels like strength.', dmg: [11, 14] }
+    ],
+    win: ['The Quiet does not vanish. It gets a name, and a name is something you can talk about.',
+          'When {P} finally spoke up, he was met with loving faces. His professors offered to help any way they could, especially PROF. WYNCHESTER.',
+          'Understanding it was a start. Changing your stance, your priorities, or your angle is how it ends.']
+  }
+};
+
+/* ---------- CONTENT: reflections (answers to the 7 assignment prompts) ---------- */
+const REFLECTIONS = [
+  { title: '1. STRATEGIC LEADERSHIP',
+    lines: ['THEN (August): Anyone can lead without being the boss. "Strategic" meant the 20,000 foot view, which I had picked up as an Eagle Scout, a Business Scholars Ambassador and an exec in Delta Chi.',
+            '',
+            'NOW: Strategic leadership is choosing the right problem, owning the outcome with checkpoints said out loud, and staying anchored on the value I create for the person I serve, while my own judgment stays mine.'] },
+  { title: '2. COMMUNITY AND IMPACT',
+    lines: ['THEN: I had no real picture. My FP&A manager told me that even technical work means acting as HR sometimes, because the people come first. I saw a task to execute.',
+            '',
+            'NOW: With {CLIENT} and {PROF1} and {PROF2}, impact became the decision my work helps someone make, measured by their definition of success. A well-evidenced "not yet" is as useful as a yes.'] },
+  { title: '3. DIVERSE TEAMS',
+    lines: ['THEN: I assumed a team either clicks or it does not. Early on I felt left out and stayed quiet about it.',
+            '',
+            'NOW: Teams storm before they norm. When we got to norming I saw more success and more comfort. My weakest quadrant is Create, and different vocabularies make a recommendation fuller, as long as I stay curious and ask WHAT.'] },
+  { title: '4. OTHER COURSEWORK',
+    lines: ['USED: Management helped me work with others and prepare documents to present. Finance and accounting gave me practice researching numbers and preparing financial documents. My main role here was interviewing and research.',
+            '',
+            'NEXT: I will bring ASK WHAT, CHECKPOINT and BUYER FIRST into every group project, and take interviewing and research skills into finance and underwriting work.'] },
+  { title: '5. WHAT STUCK',
+    lines: ['1) You will not always like your team or feel at home on day one. Ask why you were placed there and what you want out of it, then go get it.',
+            '',
+            '2) You do not have to enjoy every second of something. A hard stretch can sit, grow and change shape. Understanding it is a start. Changing your stance, priorities or angle is how it ends.',
+            '',
+            '3) The problem I was handed is not always the one that needs solving.'] },
+  { title: '6. ACTIONS GOING FORWARD',
+    lines: ['NEXT 6 MONTHS',
+            '- Start at {EMPLOYER} (finance intern: government and private contracts, maybe underwriting) and learn how the money and the decisions work.',
+            '- Use my five moves on purpose: ASK WHAT, CHECKPOINT, REFRAME, BUYER FIRST, SPEAK UP.',
+            '- Monthly check-in: did I make that call on purpose, or on autopilot? Am I saying things early?',
+            '- Schedule a regular scan of "out there" ideas, since Create is my weakest quadrant.',
+            '',
+            'AFTER GRADUATION',
+            '- Work hard in finance for defense and aerospace, then consider the jump to PE, VC, M&A or consulting in that sector.',
+            '- Keep a purpose I can name: helping others.'] },
+  { title: '7. HINDSIGHT IS 20/20',
+    lines: ['Over the summer I worked 45 hours a week and trained MMA 15 hours a week. I came into the semester burnt out before I took a syllabus exam. I grew apathetic about everything, barely went to class, saw friends at reasonable times, or did my homework. I settled for mediocrity instead of trying to soar.',
+            '',
+            'I was my fraternity\'s mental health chair, so I felt like a hypocrite and a failure: I was supposed to champion reaching out for help, and also to ask for it. It cost me grades, my health, and my relationships.',
+            '',
+            'I could have spoken up on day one to my roommates, my brothers, my family, my girlfriend. I did not. "I\'m fine" and "another day in paradise" were enough to keep anyone from stepping in. When I finally did speak up, I was met with loving faces, and my professors, especially Prof. Wynchester, offered to help any way they could.',
+            '',
+            'We all know the correct steps. What is missing is the courage to take the first one. The best way to help someone use their voice is to use your own.'] }
+];
+
+/* ---------- CONTENT: sheet, plan, credits ---------- */
+const SHEET = [
+  '{P}  |  STRAT 5800 Trailblazers',
+  'Eagle Scout. Business Scholars Ambassador. Delta Chi exec. FP&A intern.',
+  '',
+  'STYLE (self-rated, Competing Values):',
+  'COMPETE      #####',
+  'CONTROL      ####',
+  'COLLABORATE  ####',
+  'CREATE       ##',
+  '',
+  'Goal from Journal 1: balance ambition with life outside work, and notice when I trade it away on autopilot.',
+  'Dominant: Compete. Weakest: Create.'
+];
+const CREDITS = [
+  '{GAME}',
+  'A personal strategic leadership plan by {AUTHOR}, for STRAT 5800 (Goff Trailblazers), Fall 2026.',
+  '',
+  'Built from my own journals, project work and reflections.',
+  '',
+  'AI USE: Claude (Anthropic) wrote the game code and drafted text from my journals and my written answers. I reviewed and edited it.',
+  '',
+  'All characters, creatures and art are original.'
+];
+
+/* ---------- helpers ---------- */
+const PAL = ['#e0f8d0', '#88c070', '#346856', '#081820'];
+const VW = 160, VH = 144, TS = 16;
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+function fmt(s) { return String(s).replace(/\{(\w+)\}/g, (m, k) => (CAST[k] !== undefined ? CAST[k] : m)); }
+function rnd(a, b) { return a + Math.floor(Math.random() * (b - a + 1)); }
+function pick(a) { return a[Math.floor(Math.random() * a.length)]; }
+function rect(x, y, w, h, c) { ctx.fillStyle = PAL[c]; ctx.fillRect(x, y, w, h); }
+function setFont(size) { ctx.font = 'bold ' + (size || 7) + 'px "Courier New",monospace'; }
+function text(s, x, y, c, align, size) {
+  setFont(size); ctx.fillStyle = PAL[c === undefined ? 3 : c];
+  ctx.textAlign = align || 'left'; ctx.textBaseline = 'top'; ctx.fillText(s, x, y);
+}
+function wrap(s, maxW, size) {
+  setFont(size);
+  const out = [];
+  String(s).split('\n').forEach(para => {
+    if (para === '') { out.push(''); return; }
+    const words = para.split(' ');
+    let line = '';
+    words.forEach(w => {
+      const t = line ? line + ' ' + w : w;
+      if (ctx.measureText(t).width > maxW && line) { out.push(line); line = w; } else line = t;
+    });
+    out.push(line);
+  });
+  return out;
+}
+function box(x, y, w, h) {
+  rect(x, y, w, h, 3); rect(x + 1, y + 1, w - 2, h - 2, 2); rect(x + 2, y + 2, w - 4, h - 4, 0);
+}
+function bar(x, y, w, cur, max, c) {
+  rect(x, y, w, 5, 3); rect(x + 1, y + 1, w - 2, 3, 0);
+  const f = Math.max(0, Math.min(1, cur / max));
+  const col = f > 0.5 ? 2 : f > 0.2 ? 1 : 3;
+  rect(x + 1, y + 1, Math.round((w - 2) * f), 3, c === undefined ? col : c);
+}
+
+/* ---------- sound (tiny blips, can be muted) ---------- */
+let AC = null, MUTE = false;
+function sfx(f, d, type, vol, slide) {
+  if (MUTE) return;
+  try {
+    AC = AC || new (window.AudioContext || window.webkitAudioContext)();
+    const t = AC.currentTime, o = AC.createOscillator(), g = AC.createGain();
+    o.type = type || 'square'; o.frequency.setValueAtTime(f, t);
+    if (slide) o.frequency.linearRampToValueAtTime(f + slide, t + (d || 0.06));
+    g.gain.setValueAtTime(vol || 0.035, t); g.gain.exponentialRampToValueAtTime(0.0001, t + (d || 0.06));
+    o.connect(g); g.connect(AC.destination); o.start(t); o.stop(t + (d || 0.06));
+  } catch (e) { /* audio unavailable */ }
+}
+function jingle(notes) { notes.forEach((f, i) => setTimeout(() => sfx(f, 0.12, 'square', 0.04), i * 110)); }
+
+/* ---------- input ---------- */
+const held = {}, hitq = {};
+const KEYMAP = { ArrowUp: 'up', w: 'up', W: 'up', ArrowDown: 'down', s: 'down', S: 'down', ArrowLeft: 'left', a: 'left', A: 'left',
+  ArrowRight: 'right', d: 'right', D: 'right', z: 'a', Z: 'a', ' ': 'a', Enter: 'a', x: 'b', X: 'b', Backspace: 'b',
+  m: 'menu', M: 'menu', Escape: 'menu', Tab: 'menu' };
+const tapq = [];
+function press(b) { if (!held[b]) hitq[b] = true; held[b] = true; if (['up', 'down', 'left', 'right'].includes(b) && tapq.length < 3) tapq.push(b); }
+function release(b) { held[b] = false; }
+function hit(b) { const v = hitq[b]; hitq[b] = false; return !!v; }
+window.addEventListener('keydown', e => { const b = KEYMAP[e.key]; if (b) { e.preventDefault(); press(b); } });
+window.addEventListener('keyup', e => { const b = KEYMAP[e.key]; if (b) { e.preventDefault(); release(b); } });
+document.querySelectorAll('[data-b]').forEach(el => {
+  const b = el.dataset.b;
+  const on = e => { e.preventDefault(); press(b); el.classList.add('on'); };
+  const off = e => { e.preventDefault(); release(b); el.classList.remove('on'); };
+  el.addEventListener('pointerdown', on); el.addEventListener('pointerup', off);
+  el.addEventListener('pointerleave', off); el.addEventListener('pointercancel', off);
+});
+
+/* ---------- maps ---------- */
+function grid(w, h, f) { const g = []; for (let y = 0; y < h; y++) g.push(new Array(w).fill(f)); return g; }
+function building(g, x, y, w, doorX) {
+  for (let i = 0; i < w; i++) {
+    g[y][x + i] = 'R';
+    g[y + 1][x + i] = (i === 1 || i === w - 2) ? 'V' : 'W';
+    g[y + 2][x + i] = 'W';
+  }
+  g[y + 2][doorX] = 'D';
+}
+const BLOCK = new Set(['T', 'R', 'W', 'V', 'B', '#', 'c', 's', 'n']);
+const DOORS = [3, 9, 15, 21];
+
+function makeOver() {
+  const w = 26, h = 20, g = grid(w, h, '.');
+  for (let x = 0; x < w; x++) { g[0][x] = 'T'; g[h - 1][x] = 'T'; }
+  for (let y = 0; y < h; y++) { g[y][0] = 'T'; g[y][w - 1] = 'T'; }
+  DOORS.forEach(dx => { building(g, dx - 2, 2, 5, dx); building(g, dx - 2, 10, 5, dx); });
+  DOORS.forEach(dx => {
+    for (let y = 5; y <= 7; y++) g[y][dx] = '_';
+    for (let y = 13; y <= 14; y++) g[y][dx] = '_';
+  });
+  for (let x = 3; x <= 22; x++) { g[8][x] = '_'; g[15][x] = '_'; }
+  for (let y = 8; y <= 15; y++) g[y][12] = '_';
+  [[2, 17], [3, 17], [22, 17], [23, 17], [5, 18], [20, 18], [7, 17], [18, 17]].forEach(p => { g[p[1]][p[0]] = 'T'; });
+  return { w, h, g, name: 'over', npcs: [], warps: [], interact: {}, triggers: [] };
+}
+function makeRoom(name, doorX) {
+  const w = 10, h = 9, g = grid(w, h, 'f');
+  for (let x = 0; x < w; x++) { g[0][x] = '#'; g[1][x] = '#'; g[h - 1][x] = '#'; }
+  for (let y = 0; y < h; y++) { g[y][0] = '#'; g[y][w - 1] = '#'; }
+  g[1][2] = 'B'; g[1][7] = 'B';
+  g[h - 1][doorX] = 'd';
+  return { w, h, g, name, npcs: [], warps: [], interact: {}, triggers: [] };
+}
+
+/* ---------- game state ---------- */
+const G = { mode: 'title', map: 'over', x: 12, y: 17, dir: 'up', mv: null, frame: 0, moves: ['push', 'notes'], badges: [],
+  flags: {}, hp: 60, menuOpen: false, menuIdx: 0, titleIdx: 0, fade: null };
+const MAPS = {};
+function maxHp() { return 60 + 10 * G.badges.length; }
+function curMap() { return MAPS[G.map]; }
+
+/* ---------- script runner (generators) ---------- */
+const S = { gen: null, cmd: null, t: 0, tb: null, ch: null, card: null, bm: 0, mv: 0, fadeDone: null };
+const say = (t, who) => ({ type: 'say', t, who });
+const ask = (q, opts) => ({ type: 'ask', q, opts });
+const wait = n => ({ type: 'wait', n });
+const warp = (map, x, y, dir) => ({ type: 'warp', map, x, y, dir });
+const card = (title, lines) => ({ type: 'card', title, lines });
+const bmenu = () => ({ type: 'bmenu' });
+const bmoves = () => ({ type: 'bmoves' });
+const flash = who => ({ type: 'flash', who });
+function* sayAll(arr, who) { for (const t of arr) yield say(t, who); }
+
+function run(fn) { S.gen = fn(); S.val = undefined; advance(undefined); }
+function advance(v) {
+  const r = S.gen.next(v);
+  if (r.done) { S.gen = null; S.cmd = null; return; }
+  S.cmd = r.value; S.t = 0;
+  const c = S.cmd;
+  if (c.type === 'say') {
+    const lines = wrap(fmt(c.t), 146, 7), pages = [];
+    for (let i = 0; i < lines.length; i += 3) pages.push(lines.slice(i, i + 3));
+    S.tb = { pages, pi: 0, shown: 0, who: c.who ? fmt(c.who) : null };
+  } else if (c.type === 'ask') {
+    S.ch = { q: fmt(c.q), opts: c.opts.map(fmt), i: 0 };
+  } else if (c.type === 'card') {
+    const lines = []; c.lines.forEach(l => wrap(fmt(l), 148, 7).forEach(x => lines.push(x)));
+    const cap = 11, pages = [];
+    for (let i = 0; i < lines.length; i += cap) pages.push(lines.slice(i, i + cap));
+    if (!pages.length) pages.push(['']);
+    S.card = { title: fmt(c.title), pages, pi: 0 };
+  } else if (c.type === 'warp') {
+    G.fade = { t: 0, phase: 'out', to: c };
+  } else if (c.type === 'bmenu') { S.bm = 0; }
+  else if (c.type === 'bmoves') { S.mv = 0; }
+  else if (c.type === 'flash') { B.flash = { who: c.who, t: 24 }; if (c.who === 'player') B.shake = 10; }
+}
+
+/* ---------- save ---------- */
+function save() {
+  try {
+    localStorage.setItem('tq_save_v1', JSON.stringify({ moves: G.moves, badges: G.badges, flags: G.flags, map: G.map, x: G.x, y: G.y, dir: G.dir }));
+    SAVED = true;
+  } catch (e) { /* storage may be unavailable */ }
+}
+function loadSave() {
+  try {
+    const s = JSON.parse(localStorage.getItem('tq_save_v1') || 'null');
+    if (!s || !MAPS[s.map]) return false;
+    G.moves = s.moves; G.badges = s.badges; G.flags = s.flags; G.map = s.map; G.x = s.x; G.y = s.y; G.dir = s.dir;
+    G.mv = null; G.hp = maxHp(); return true;
+  } catch (e) { return false; }
+}
+let SAVED = null;
+function hasSave() {
+  if (SAVED === null) { try { SAVED = !!localStorage.getItem('tq_save_v1'); } catch (e) { SAVED = false; } }
+  return SAVED;
+}
+
+/* ---------- sprites ---------- */
+function drawPerson(x, y, dir, frame, l) {
+  l = l || {};
+  const hair = l.hair === undefined ? 3 : l.hair, shirt = l.shirt === undefined ? 2 : l.shirt;
+  rect(x + 4, y + 14, 8, 2, 1);
+  const f = frame % 2;
+  // legs
+  rect(x + 5, y + 13 + (f ? 0 : 1), 2, 3 - (f ? 0 : 1), 3);
+  rect(x + 9, y + 13 + (f ? 1 : 0), 2, 3 - (f ? 1 : 0), 3);
+  // body
+  rect(x + 4, y + 9, 8, 5, 3); rect(x + 5, y + 10, 6, 3, shirt);
+  if (l.cheer) { rect(x + 2, y + 4, 2, 7, 3); rect(x + 12, y + 4, 2, 7, 3); rect(x + 2, y + 3, 2, 1, 0); rect(x + 12, y + 3, 2, 1, 0); }
+  else { rect(x + 3, y + 10, 1, 3, 3); rect(x + 12, y + 10, 1, 3, 3); }
+  // head
+  rect(x + 4, y + 1, 8, 8, 3);
+  if (dir === 'up') {
+    rect(x + 5, y + 2, 6, 6, hair);
+    rect(x + 6, y + 3, 2, 2, 2); rect(x + 9, y + 5, 1, 1, 2);
+    if (l.mullet) { rect(x + 5, y + 9, 6, 3, hair); rect(x + 7, y + 10, 2, 1, 2); }
+  } else if (dir === 'down') {
+    rect(x + 5, y + 2, 6, 6, 0);
+    rect(x + 4, y + 1, 8, 4, hair);
+    if (l.mullet) { rect(x + 3, y + 3, 1, 5, hair); rect(x + 12, y + 3, 1, 5, hair); }
+    if (l.glasses) {
+      rect(x + 5, y + 5, 3, 3, 2); rect(x + 8, y + 5, 3, 3, 2);
+      rect(x + 6, y + 6, 1, 1, 3); rect(x + 9, y + 6, 1, 1, 3);
+    } else { rect(x + 6, y + 6, 1, 1, 3); rect(x + 9, y + 6, 1, 1, 3); }
+  } else {
+    const L = dir === 'left';
+    rect(x + (L ? 5 : 6), y + 3, 5, 5, 0);
+    rect(x + 4, y + 1, 8, 3, hair);
+    rect(x + (L ? 8 : 4), y + 3, 4, 6, hair);
+    if (l.mullet) rect(x + (L ? 9 : 4), y + 8, 3, 4, hair);
+    const ex = L ? x + 6 : x + 9;
+    if (l.glasses) { rect(ex - 1, y + 4, 3, 3, 2); rect(ex, y + 5, 1, 1, 3); }
+    else rect(ex, y + 5, 1, 1, 3);
+  }
+}
+const QUINN = { hair: 3, shirt: 1, glasses: true, mullet: true };
+
+function drawBossArt(kind, x, y) {
+  ctx.save(); ctx.translate(x, y);
+  if (kind === 'mirror') {
+    rect(8, 0, 32, 44, 3); rect(11, 3, 26, 38, 0); rect(14, 6, 20, 32, 1);
+    rect(18, 13, 12, 12, 3); rect(19, 14, 10, 10, 0); rect(21, 17, 2, 2, 3); rect(26, 17, 2, 2, 3); rect(22, 21, 5, 1, 3);
+    rect(15, 28, 18, 8, 3); rect(16, 29, 16, 6, 2);
+    rect(16, 8, 2, 8, 0); rect(19, 8, 1, 4, 0);
+    rect(14, 44, 20, 4, 3);
+  } else if (kind === 'calendar') {
+    rect(6, 6, 36, 38, 3); rect(8, 14, 32, 28, 0); rect(8, 8, 32, 6, 2);
+    rect(14, 2, 3, 8, 3); rect(31, 2, 3, 8, 3);
+    for (let i = 0; i < 4; i++) rect(8, 20 + i * 6, 32, 1, 1);
+    for (let i = 1; i < 5; i++) rect(8 + i * 6, 14, 1, 28, 1);
+    for (let i = 0; i < 18; i++) { rect(12 + i, 20 + Math.floor(i * 1.1), 3, 3, 3); rect(30 - i, 20 + Math.floor(i * 1.1), 3, 3, 3); }
+  } else if (kind === 'flyers') {
+    rect(14, 8, 28, 36, 3); rect(15, 9, 26, 34, 1);
+    rect(8, 4, 28, 36, 3); rect(9, 5, 26, 34, 0);
+    rect(12, 10, 20, 5, 2); for (let i = 0; i < 5; i++) rect(12, 19 + i * 4, i % 2 ? 14 : 20, 2, 1);
+    rect(12, 36, 8, 2, 3);
+  } else if (kind === 'gem') {
+    ctx.fillStyle = PAL[3]; ctx.beginPath();
+    ctx.moveTo(24, 1); ctx.lineTo(44, 16); ctx.lineTo(37, 45); ctx.lineTo(11, 45); ctx.lineTo(4, 16); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = PAL[1]; ctx.beginPath();
+    ctx.moveTo(24, 5); ctx.lineTo(40, 17); ctx.lineTo(34, 42); ctx.lineTo(14, 42); ctx.lineTo(8, 17); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = PAL[0]; ctx.beginPath();
+    ctx.moveTo(24, 5); ctx.lineTo(24, 24); ctx.lineTo(8, 17); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = PAL[2]; ctx.beginPath();
+    ctx.moveTo(24, 24); ctx.lineTo(40, 17); ctx.lineTo(34, 42); ctx.closePath(); ctx.fill();
+    rect(20, 20, 3, 3, 3); rect(29, 20, 3, 3, 3);
+    rect(36, 4, 1, 7, 0); rect(33, 7, 7, 1, 0);
+  } else if (kind === 'cloud') {
+    ctx.fillStyle = PAL[3];
+    [[14, 28, 12], [26, 20, 14], [36, 30, 11], [24, 34, 12], [10, 36, 8], [40, 38, 7]].forEach(c => { ctx.beginPath(); ctx.arc(c[0], c[1], c[2], 0, 6.3); ctx.fill(); });
+    ctx.fillStyle = PAL[2];
+    [[24, 24, 9], [16, 32, 6], [34, 33, 6]].forEach(c => { ctx.beginPath(); ctx.arc(c[0], c[1], c[2], 0, 6.3); ctx.fill(); });
+    rect(18, 24, 4, 2, 0); rect(28, 24, 4, 2, 0);
+  }
+  ctx.restore();
+}
+
+/* ---------- tiles ---------- */
+function drawTile(ch, x, y, tx, ty) {
+  const h = (tx * 7 + ty * 13) % 5;
+  switch (ch) {
+    case '.': rect(x, y, 16, 16, 1);
+      if (h === 0) rect(x + 3, y + 4, 2, 1, 0); if (h === 1) rect(x + 10, y + 9, 1, 2, 2);
+      if (h === 2) rect(x + 6, y + 11, 2, 1, 0); if (h === 3) rect(x + 12, y + 3, 1, 2, 2); break;
+    case '_': rect(x, y, 16, 16, 0); if (h < 2) rect(x + 4 + h * 5, y + 6, 2, 1, 1); if (h === 3) rect(x + 9, y + 12, 3, 1, 1); break;
+    case 'T': rect(x, y, 16, 16, 1); rect(x + 2, y + 1, 12, 11, 3); rect(x + 3, y + 2, 10, 9, 2);
+      rect(x + 4, y + 3, 3, 2, 1); rect(x + 7, y + 12, 2, 4, 3); break;
+    case 'R': rect(x, y, 16, 16, 3); for (let i = 0; i < 4; i++) rect(x, y + 2 + i * 4, 16, 2, 2); break;
+    case 'W': rect(x, y, 16, 16, 0); rect(x, y + 15, 16, 1, 1); rect(x + 7, y, 1, 16, 1); break;
+    case 'V': rect(x, y, 16, 16, 0); rect(x + 3, y + 3, 10, 9, 3); rect(x + 4, y + 4, 8, 7, 1); rect(x + 7, y + 4, 2, 7, 3); rect(x + 4, y + 7, 8, 1, 3); break;
+    case 'D': rect(x, y, 16, 16, 0); rect(x + 3, y + 1, 10, 15, 3); rect(x + 4, y + 2, 8, 14, 2); rect(x + 10, y + 9, 2, 2, 0); break;
+    case 'f': rect(x, y, 16, 16, 0); rect(x, y, 16, 1, 1); rect(x, y, 1, 16, 1); break;
+    case '#': rect(x, y, 16, 16, 2); rect(x, y + 15, 16, 1, 3); rect(x, y + 7, 16, 1, 3); rect(x + 8, y, 1, 7, 3); break;
+    case 'B': rect(x, y, 16, 16, 2); rect(x + 3, y, 10, 13, 3); rect(x + 4, y + 1, 8, 11, 1); rect(x + 6, y + 3, 4, 4, 0); rect(x + 7, y + 8, 2, 2, 3); break;
+    case 'c': rect(x, y, 16, 16, 0); rect(x, y + 3, 16, 10, 3); rect(x, y + 4, 16, 8, 2); rect(x, y + 4, 16, 2, 1); break;
+    case 'n': rect(x, y, 16, 16, 2); rect(x + 1, y + 2, 14, 12, 3); rect(x + 2, y + 3, 12, 10, 0);
+      rect(x + 3, y + 4, 4, 4, 1); rect(x + 8, y + 4, 5, 3, 1); rect(x + 4, y + 9, 8, 2, 1); rect(x + 4, y + 4, 2, 1, 3); rect(x + 9, y + 4, 2, 1, 3); break;
+    case 'd': rect(x, y, 16, 16, 2); rect(x + 2, y + 6, 12, 10, 3); rect(x + 4, y + 8, 8, 8, 1); break;
+    case 'r': rect(x, y, 16, 16, 1); rect(x + 1, y + 1, 14, 14, 0); rect(x + 3, y + 3, 10, 10, 1); break;
+    case 's': rect(x, y, 16, 16, curMap().name === 'over' ? 1 : 0); rect(x + 7, y + 8, 2, 7, 3); rect(x + 2, y + 2, 12, 8, 3); rect(x + 3, y + 3, 10, 6, 0); rect(x + 4, y + 5, 8, 1, 2); rect(x + 4, y + 7, 6, 1, 2); break;
+    default: rect(x, y, 16, 16, 0);
+  }
+}
+
+/* ---------- scripts ---------- */
+function npcDone(flag) { return !!G.flags[flag]; }
+function gainMove(id) {
+  if (!G.moves.includes(id)) G.moves.push(id);
+}
+function* learnMove(id) {
+  const m = MOVES[id];
+  jingle([523, 659, 784, 1047]);
+  const had = G.moves.includes(id);
+  gainMove(id);
+  yield say(had ? '{P} makes ' + m.name + ' a habit, for good.' : '{P} learned ' + m.name + '!');
+  yield card('NEW MOVE: ' + m.name, ['RULE', m.rule, '', 'USE IT WHEN', m.when, '', 'CHECK-IN QUESTION', m.check]);
+}
+
+function* battleFlow(id) {
+  const b = BOSSES[id];
+  G.mode = 'battle';
+  G.hp = maxHp();
+  B = { id, b, hp: b.hp, max: b.hp, hpShow: b.hp, php: G.hp, phpShow: G.hp, phase: 1, flash: null, shake: 0, t: 0 };
+  yield* sayAll(['A challenger blocks the way! ' + b.name + ' wants a battle.']);
+  while (true) {
+    const c = yield bmenu();
+    if (c === 1) {
+      yield say(b.hint);
+      if (b.teaches && !G.moves.includes(b.teaches)) {
+        jingle([523, 659, 784]);
+        yield say('A thought from the semester surfaces. {P} remembers ' + MOVES[b.teaches].name + '. New move added to the FIGHT list!');
+        gainMove(b.teaches);
+      }
+      continue;
+    }
+    const mv = yield bmoves();
+    if (mv === null) continue;
+    const M = MOVES[mv];
+    yield say('{P} uses ' + M.name + '!');
+    let mult = 1, note = null;
+    if (b.weak.includes(mv)) { mult = 2.2; note = b.weakText; }
+    else if (b.semi && b.semi.includes(mv)) { mult = 1.5; note = b.semiText || 'That helps a little.'; }
+    else if (b.resist && b.resist.includes(mv)) { mult = 0.5; note = b.resistText; }
+    const dmg = Math.max(1, Math.round(rnd(M.base[0], M.base[1]) * mult));
+    sfx(mult > 1 ? 440 : 220, 0.12, 'square', 0.05, mult > 1 ? 300 : -60);
+    yield flash('enemy');
+    B.hp = Math.max(0, B.hp - dmg);
+    if (note) yield say(note);
+    if (M.recoil) { B.php = Math.max(0, B.php - M.recoil); yield say('Pushing hard costs ' + M.recoil + ' Resolve.'); }
+    if (M.heal) { B.php = Math.min(maxHp(), B.php + M.heal); yield say('A clear record steadies {P}. Resolve restored a bit.'); }
+    if (B.php <= 0) { yield say('{P} runs out of Resolve...'); G.mode = 'world'; return 'lose'; }
+    if (b.phase2 && B.phase === 1 && B.hp <= b.hp / 2 && B.hp > 0) { B.phase = 2; yield say(b.phase2); }
+    if (B.hp <= 0) break;
+    const at = pick(B.phase === 2 && b.attacks2 ? b.attacks2 : b.attacks);
+    yield say(at.text);
+    const d = rnd(at.dmg[0], at.dmg[1]);
+    sfx(150, 0.15, 'sawtooth', 0.05, -80);
+    yield flash('player');
+    B.php = Math.max(0, B.php - d);
+    if (B.php <= 0) { yield say('{P} runs out of Resolve...'); G.mode = 'world'; return 'lose'; }
+  }
+  jingle([392, 523, 659, 784]);
+  yield* sayAll(b.win);
+  G.mode = 'world';
+  return 'win';
+}
+
+function bossScript(id, home) {
+  const b = BOSSES[id];
+  return function* () {
+    if (G.badges.includes(id)) { yield say('The hall is quiet now. ' + b.name + ' nods at you.', b.name); return; }
+    yield* sayAll(b.pre, b.name);
+    const r = yield* battleFlow(id);
+    if (r === 'win') {
+      G.badges.push(id); G.hp = maxHp();
+      yield say('{P} earned the ' + b.gym + ' badge! Resolve rose to ' + maxHp() + '.');
+      if (b.teaches) yield* learnMove(b.teaches);
+      save();
+      if (id === 'quiet') yield* epilogue();
+      else if (G.badges.filter(x => x !== 'quiet').length === 4 && G.moves.includes('speakup')) yield say('All four halls cleared. The Hindsight Tower is open.');
+      else if (G.badges.filter(x => x !== 'quiet').length === 4) yield say('All four halls cleared. Something is missing before the Hindsight Tower. Visit the Principles Hall.');
+    } else {
+      G.hp = maxHp();
+      yield say('{P} steps outside to regroup. Try a different move, or press THINK for a hint.');
+      yield warp(home.map, home.x, home.y, 'up');
+    }
+  };
+}
+
+const CROWD_SPOTS = [[1, 2], [2, 2], [3, 2], [4, 2], [5, 2], [6, 2], [7, 2], [8, 2], [1, 3], [2, 3], [3, 3], [5, 3], [6, 3], [7, 3], [8, 3],
+  [1, 4], [2, 4], [7, 4], [8, 4], [1, 5], [2, 5], [7, 5], [8, 5]];
+const CHEERS = {
+  '{GUIDE}': 'You came in unsure what strategic leadership even meant. Look at you now. Well done, Trailblazer!',
+  '{COLE}': 'That is our guy! Great work all semester.',
+  '{ELISE}': 'Check-ins at every meeting, remember? So proud of how you showed up.',
+  '{KEFA}': 'Everyone sees a different part of the problem. You saw yours. Congratulations!',
+  '{PROF1}': 'A well-evidenced answer, and a first-class team. Congratulations!',
+  '{PROF2}': 'Well done. We are glad it was you who took this on.',
+  '{KATRINA}': 'You felt it, and then you did something about it. Proud of you!',
+  '{LIZ}': 'Purpose, outcomes, process. You nailed all three. Congratulations!',
+  '{PAUL}': 'Different ethics, same cheer. Congratulations!',
+  '{BEN}': 'Value created, and the purpose is yours. Congratulations!',
+  '{JEFF}': 'Keep the judgment human and the credit yours. Go get it!',
+  '{MAILE}': 'Centered and clear. Congratulations!',
+  'THE MIRROR': 'Fine, I will admit it. I reflect a stronger leader now.',
+  'THE PROMISE': 'A promise kept, and said out loud!',
+  'THE FLYER PRINTER': 'No more flyers. Carpools for everyone!',
+  'THE SHINY ROCK': 'Okay, you were right. The buyer comes first. Congratulations!',
+  'OWNERSHIP': 'Checkpoints said out loud. Great ownership!',
+  'SELF-AWARENESS': 'You asked what, and you changed your stance. Congratulations!',
+  'RIGHT PROBLEMS': 'You found the right problem. Congratulations!',
+  'RESOURCES': 'Your voice made the whole team stronger!',
+  'VISION': 'A plan worth sharing. Congratulations!',
+  'VALUE': 'Buyer first, every time. Congratulations!',
+  'RECRUIT': 'I knew you would do it!',
+  'MANAGEMENT': 'Great teamwork and great documents!',
+  'FINANCE': 'Sharp numbers and steady nerve. Congratulations!'
+};
+function setCrowd() {
+  const tower = MAPS.tower;
+  tower.npcs = tower.npcs.filter(n => !n.boss && !n.cheer);
+  const src = [];
+  ['over', 'team', 'client', 'class', 'mirror', 'promise', 'problem', 'rock'].forEach(k => MAPS[k].npcs.forEach(n => { if (n.name !== 'FIELD NOTE') src.push(n); }));
+  src.slice(0, CROWD_SPOTS.length).forEach((n, i) => {
+    const sp = CROWD_SPOTS[i];
+    tower.npcs.push({ x: sp[0], y: sp[1], dir: 'down', look: Object.assign({}, n.look, { cheer: true }), name: n.name, cheer: true, phase: i * 5,
+      script: function* () { yield say(CHEERS[n.name] || 'Congratulations, {P}!', n.name); } });
+  });
+}
+
+function* epilogue() {
+  yield say('The Quiet is named, and that is a start.');
+  setCrowd();
+  yield warp('tower', 4, 6, 'up');
+  jingle([523, 659, 784, 1047, 1319, 1047, 1319, 1568]);
+  yield say('The tower fills up. Everyone {P} met this semester is here, cheering.');
+  yield say('EVERYONE: CONGRATULATIONS, {P}!!');
+  yield card('HINDSIGHT', REFLECTIONS[6].lines);
+  yield card('WHAT STUCK', REFLECTIONS[4].lines);
+  yield card('THE PLAN', REFLECTIONS[5].lines);
+  yield card('SIX PRINCIPLES', ['YOUR CORE', '1. Ownership: CHECKPOINT (Promise Hall)', '2. Self-Awareness and Growth: ASK WHAT (Mirror Hall), SPEAK UP (Tower)', '', 'YOUR ROLE', '3. Right Problems: REFRAME (Problem Hall)', '4. Align Resources: SPEAK UP (Principles Hall)', '', 'YOUR GOAL', '5. Vision: this plan, and the Class Hall board', '6. Value: BUYER FIRST (Value Hall)']);
+  yield card('CREDITS', CREDITS);
+  G.flags.finished = true; save();
+  yield say('Talk to anyone in the crowd, or open the MENU any time to reread your Playbook and reflections.');
+}
+
+function* teamMeeting() {
+  if (G.flags.team) { yield say('KEEPER OF RESOURCES: Your time, your energy and the people around you are all resources. You used one of them well.'); return; }
+  yield say('KEEPER OF RESOURCES: Principle 4. Resources are not only money. They are your time, your energy, and the people who would help if they knew.');
+  yield say('Another week. {P} is working long hours, training hard, and running on empty.');
+  while (true) {
+    const c = yield ask('What does {P} do?', ['Say "I\'m fine" and keep going', 'Tell someone exactly what is going on and what I need', 'Take on more to prove I can handle it']);
+    if (c === 1) break;
+    if (c === 0) yield say('"I\'m fine" is a plan nobody agreed to. The load just grows. Try again.');
+    else yield say('Taking on more feels like strength, but it spends the one resource you are already out of. Try again.');
+  }
+  yield say('{P}: I am running on empty, and I have not said anything. Can I tell you what is going on and what I need?');
+  yield say('SOMEONE YOU TRUST: I am glad you told me. Let us figure it out together.');
+  yield say('The load gets lighter the moment it leaves your head. A resource that speaks up is a resource others can help.');
+  G.flags.team = true;
+  yield* learnMove('speakup');
+  save();
+}
+
+/* ---------- build the world ---------- */
+function buildWorld() {
+  const over = makeOver(); MAPS.over = over;
+  const halls = [
+    { id: 'mirror', sign: 'MIRROR HALL: Principle 2, Self-Awareness and Continual Growth. Boss: THE MIRROR.', look: BOSSES.mirror.look },
+    { id: 'promise', sign: 'PROMISE HALL: Principle 1, Personal Ownership. Boss: THE PROMISE.' },
+    { id: 'problem', sign: 'PROBLEM HALL: Principle 3, Find the Right Problems. Boss: THE FLYER PRINTER.' },
+    { id: 'rock', sign: 'VALUE HALL: Principle 6, Relentless Focus on Value. Boss: THE SHINY ROCK.' }
+  ];
+  halls.forEach((hl, i) => {
+    const dx = DOORS[i], room = makeRoom(hl.id, 4);
+    MAPS[hl.id] = room;
+    for (let y = 3; y <= 7; y++) room.g[y][4] = 'r';
+    over.warps.push({ x: dx, y: 4, to: hl.id, tx: 4, ty: 7, dir: 'up' });
+    room.warps.push({ x: 4, y: 8, to: 'over', tx: dx, ty: 5, dir: 'down' });
+    over.g[5][dx - 1] = 's';
+    over.interact[(dx - 1) + ',5'] = function* () { yield say(hl.sign); };
+    const b = BOSSES[hl.id];
+    room.npcs.push({ x: 4, y: 2, dir: 'down', look: b.look, name: b.name, script: bossScript(hl.id, { map: hl.id, x: 4, y: 7 }), boss: true });
+    room.triggers.push({ x: 4, y: 5, cond: () => !G.badges.includes(hl.id), script: bossScript(hl.id, { map: hl.id, x: 4, y: 7 }) });
+  });
+  const hints = {
+    mirror: ['The Mirror only reflects what you already believe. Pushing harder will not crack it. Think about what a good question sounds like.', '{P}: So the boss fight is... introspection. Great. Very comfortable.'],
+    promise: ['The Promise never writes anything down. Dates said out loud and a backup plan are its weakness.', '{P}: Said out loud. To people. Noted.'],
+    problem: ['The Flyer Printer solves every problem at top speed. Try slowing down and asking who is outside the team.'],
+    rock: ['The Shiny Rock is dazzling. A real client does not care about dazzle, only about the decision they have to make.']
+  };
+  halls.forEach(hl => {
+    const room = MAPS[hl.id];
+    room.npcs.push({ x: 2, y: 5, dir: 'right', look: { hair: 1, shirt: 3 }, name: 'RECRUIT',
+      script: function* () { yield* sayAll(hints[hl.id], 'RECRUIT'); } });
+  });
+
+  /* south row: Team Room, Client Office, Class Hall, Hindsight Tower */
+  const team = makeRoom('team', 4); MAPS.team = team;
+  const client = makeRoom('client', 4); MAPS.client = client;
+  const cls = makeRoom('class', 4); MAPS.class = cls;
+  const tower = makeRoom('tower', 4); MAPS.tower = tower;
+  [['team', 3], ['client', 9], ['class', 15], ['tower', 21]].forEach(p => {
+    const dx = p[1];
+    over.warps.push({ x: dx, y: 12, to: p[0], tx: 4, ty: 7, dir: 'up' });
+    MAPS[p[0]].warps.push({ x: 4, y: 8, to: 'over', tx: dx, ty: 13, dir: 'down' });
+  });
+  over.g[13][2] = 's'; over.interact['2,13'] = function* () { yield say('PRINCIPLES HALL: The Six Principles of Strategic Leadership.'); };
+  over.g[13][8] = 's'; over.interact['8,13'] = function* () { yield say('CLIENT OFFICE: Principle 4, Align Resources to Generate Value. {CLIENT}.'); };
+  over.g[13][14] = 's'; over.interact['14,13'] = function* () { yield say('CLASS HALL: Principle 5, Vision. Skills from other classes, and where the plan goes next.'); };
+  over.g[13][20] = 's'; over.interact['20,13'] = function* () { yield say('HINDSIGHT TOWER: Four badges and the SPEAK UP move required.'); };
+  over.warps.find(w => w.to === 'tower').cond = () => G.badges.filter(b => b !== 'quiet').length >= 4 && G.moves.includes('speakup');
+  over.warps.find(w => w.to === 'tower').fail = function* () {
+    yield say('The tower door will not open. The sign says: four badges, and the one move you learn in the Principles Hall.');
+  };
+
+  /* principles hall (replaces the old team room) */
+  const PR = [
+    [2, 3, 'down', 'OWNERSHIP', 'PRINCIPLE 1, YOUR CORE: Deliver Results with Strong Personal Ownership. Take responsibility, favor action, and treat the work as a stewardship.',
+      'In this game: PROMISE HALL. Say the checkpoint dates out loud. Move earned there: CHECKPOINT.'],
+    [4, 3, 'down', 'SELF-AWARENESS', 'PRINCIPLE 2, YOUR CORE: Cultivate Self-Awareness, Personal Agility, and Continual Growth. Know your ambition, strengths and gaps, and keep changing.',
+      'In this game: MIRROR HALL (ASK WHAT) and the Hindsight Tower, where agility means changing your stance when waiting does not work.'],
+    [6, 3, 'down', 'RIGHT PROBLEMS', 'PRINCIPLE 3, YOUR ROLE: Actively Find and Formulate the Right Problems. Be a problem finder, not only a problem solver.',
+      'In this game: PROBLEM HALL. Rewrite the problem before you print a single flyer. Move earned there: REFRAME.'],
+    [2, 5, 'right', 'VISION', 'PRINCIPLE 5, YOUR GOAL: Craft and Share Compelling Strategic Vision. Say where you are headed so others can help you get there.',
+      'In this game: this plan is the vision, and the board in the CLASS HALL shares it out loud. The finished plan lives in the MENU.'],
+    [7, 5, 'left', 'VALUE', 'PRINCIPLE 6, YOUR GOAL: Maintain Relentless Focus on Creating Value. Value is the decision your work helps someone make.',
+      'In this game: VALUE HALL. Start with who decides and what they need. Move earned there: BUYER FIRST.']
+  ];
+  PR.forEach((r, i) => team.npcs.push({ x: r[0], y: r[1], dir: r[2], look: { hair: i % 3 + 1, shirt: (i + 2) % 4 }, name: r[3],
+    script: function* () { yield say(r[4], r[3]); yield say(r[5], r[3]); } }));
+  team.npcs.push({ x: 5, y: 5, dir: 'up', look: { hair: 2, shirt: 1, glasses: true }, name: 'RESOURCES', script: teamMeeting });
+
+  /* client office */
+  client.g[3][3] = 'c'; client.g[3][4] = 'c'; client.g[3][5] = 'c'; client.g[3][6] = 'c';
+  client.npcs.push({ x: 3, y: 2, dir: 'down', look: { hair: 2, shirt: 0, glasses: true }, name: '{PROF1}', script: function* () {
+    yield say('{PROF1}: Our semiconductors work in the lab under extreme heat and radiation, but there is no product yet.', '{PROF1}');
+    yield say('We have limited research effort. Which first product and buyer deserve it?', '{PROF1}'); } });
+  client.npcs.push({ x: 6, y: 2, dir: 'down', look: { hair: 3, shirt: 1 }, name: '{PROF2}', script: function* () {
+    yield say('{PROF2}: A well-evidenced "not yet" helps us as much as a yes. Show us the buyers.', '{PROF2}'); } });
+  client.npcs.push({ x: 5, y: 5, dir: 'up', look: { hair: 1, shirt: 3 }, name: 'FIELD NOTE', script: function* () {
+    yield say('{P}: Going in, I had no real picture of this. A manager once told me even technical work means acting as HR sometimes. The people come first.');
+    yield say('Now: impact is the decision my work helps someone make, measured the way {CLIENT} measures success. Deployed technology, not just revenue.'); } });
+
+  /* class hall */
+  cls.npcs.push({ x: 3, y: 3, dir: 'right', look: { hair: 2, shirt: 2 }, name: 'MANAGEMENT', script: function* () {
+    yield say('MANAGEMENT CLASS: Working with others, preparing documents, presenting findings. All of it showed up on this project.', 'MANAGEMENT'); } });
+  cls.npcs.push({ x: 6, y: 3, dir: 'left', look: { hair: 3, shirt: 0 }, name: 'FINANCE', script: function* () {
+    yield say('FINANCE AND ACCOUNTING: Those classes gave me the habit of researching the numbers and preparing clean financial documents. On a project about which market to enter, that habit matters.', 'FINANCE'); } });
+  cls.g[1][4] = 'n';
+  cls.interact['4,1'] = function* () {
+    yield say('NEXT SEMESTER BOARD: Trailblazers gave me a toolkit I can reuse in any class.');
+    yield say('ASK WHAT in group disagreements. CHECKPOINT on every deadline. BUYER FIRST on every case. SPEAK UP the day something feels off, not the week after.');
+  };
+
+  /* tower */
+  for (let y = 3; y <= 7; y++) tower.g[y][4] = 'r';
+  tower.npcs.push({ x: 4, y: 2, dir: 'down', look: BOSSES.quiet.look, name: 'THE QUIET', script: bossScript('quiet', { map: 'tower', x: 4, y: 7 }), boss: true });
+  tower.triggers.push({ x: 4, y: 5, cond: () => !G.badges.includes('quiet'), script: function* () {
+    yield say('{P}: I came into this semester already burnt out. I thought I could wait it out.');
+    yield* bossScript('quiet', { map: 'tower', x: 4, y: 7 })();
+  } });
+
+  /* overworld NPCs: mentors (Quinn's notes) and the guide */
+  over.npcs.push({ x: 13, y: 17, dir: 'left', look: { hair: 2, shirt: 3 }, name: '{GUIDE}', script: function* () {
+    yield say('{GUIDE}: Four halls, a Principles Hall, a client office, and a tower you cannot enter yet. Visit them in any order.', '{GUIDE}');
+    yield say('Open the MENU any time to see your Playbook, your Sheet, and your reflections.', '{GUIDE}'); } });
+  const mentors = [
+    [6, 9, '{KATRINA}', 'Notes from {KATRINA}: Feel the setback, then actually do something about it. Both halves count.'],
+    [18, 9, '{LIZ}', 'Notes from {LIZ}: POP for delegation: Purpose, Outcomes, Process. Frame the problem before handing off the work.'],
+    [6, 16, '{PAUL}', 'Notes from {PAUL}: Personal ethics vary person to person. Shared values do not guarantee shared conclusions, so ask.'],
+    [18, 16, '{BEN}', 'Notes from {BEN}: Value can be created in any part of life, as long as you have a personal connection to your purpose.'],
+    [9, 9, '{JEFF}', 'Notes from {JEFF}: AI makes knowledge cheap, not judgment. Think first, then ask AI what you are missing.'],
+    [15, 16, '{MAILE}', 'Notes from {MAILE}: Know your strategic center, and let it decide what you say yes and no to.']
+  ];
+  mentors.forEach((m, i) => over.npcs.push({ x: m[0], y: m[1], dir: i % 2 ? 'left' : 'right', look: { hair: i % 3 + 1, shirt: (i + 1) % 4 }, name: m[2],
+    script: function* () { yield say(m[3], m[2]); } }));
+}
+
+/* ---------- world logic ---------- */
+function npcAt(x, y) { return curMap().npcs.find(n => n.x === x && n.y === y); }
+function passable(x, y) {
+  const m = curMap();
+  if (x < 0 || y < 0 || x >= m.w || y >= m.h) return false;
+  if (BLOCK.has(m.g[y][x])) return false;
+  if (npcAt(x, y)) return false;
+  return true;
+}
+const DIRS = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
+
+function tryInteract() {
+  const d = DIRS[G.dir], tx = G.x + d[0], ty = G.y + d[1], m = curMap();
+  const n = npcAt(tx, ty);
+  if (n) {
+    const od = n.dir;
+    n.dir = G.dir === 'up' ? 'down' : G.dir === 'down' ? 'up' : G.dir === 'left' ? 'right' : 'left';
+    run(function* () { yield* n.script(); n.dir = od; });
+    return;
+  }
+  const it = m.interact[tx + ',' + ty];
+  if (it) run(it);
+}
+function afterStep() {
+  const m = curMap();
+  const w = m.warps.find(w => w.x === G.x && w.y === G.y);
+  if (w) {
+    if (w.cond && !w.cond()) { run(w.fail); return; }
+    run(function* () { yield warp(w.to, w.tx, w.ty, w.dir); });
+    return;
+  }
+  const t = m.triggers.find(t => t.x === G.x && t.y === G.y && t.cond());
+  if (t) run(t.script);
+}
+
+function startNew() {
+  buildWorld();
+  G.mode = 'world'; G.map = 'over'; G.x = 12; G.y = 17; G.dir = 'up'; G.moves = ['push', 'notes']; G.badges = []; G.flags = {}; G.hp = 60; G.mv = null;
+  run(function* () {
+    yield say('{GUIDE}: Welcome, Trailblazer. This semester you take on a real client, and a few hard lessons about leading when nobody hands you a title.', '{GUIDE}');
+    yield say('{P}: Great. A leadership class with boss fights. Very on brand.');
+    yield say('{P}: In August I was not sure what strategic leadership even meant. I knew anyone can lead without being the boss. And from being an Eagle Scout, a Business Scholars Ambassador and a Delta Chi exec, I knew it meant stepping back for the 20,000 foot view.');
+    yield say('{GUIDE}: Good start. Four halls will test it. Each leader guards a habit worth keeping. Beat them, then keep what you learn.', '{GUIDE}');
+    yield say('Your lessons go in the Playbook, in the MENU. Walk up to anything and press A.', '{GUIDE}');
+  });
+}
+function continueGame() {
+  buildWorld();
+  if (!loadSave()) { startNew(); return; }
+  if (G.flags.finished) setCrowd();
+  G.mode = 'world';
+}
+
+/* ---------- menu ---------- */
+const MENU_ITEMS = ['PLAYBOOK', 'SHEET', 'REFLECTIONS', 'CREDITS', 'SAVE', 'SOUND', 'CLOSE'];
+function playbookLines() {
+  const L = [];
+  const learned = G.moves.filter(m => MOVES[m].learned);
+  if (!learned.length) return ['No lessons yet. Beat a boss, or finish a scene with the team, to learn a move.'];
+  learned.forEach(id => {
+    const m = MOVES[id];
+    L.push(m.name, 'RULE: ' + m.rule, 'WHEN: ' + m.when, 'CHECK-IN: ' + m.check, '');
+  });
+  return L;
+}
+function openMenuItem(i) {
+  const it = MENU_ITEMS[i];
+  G.menuOpen = false;
+  if (it === 'PLAYBOOK') run(function* () { yield card('PLAYBOOK', playbookLines()); });
+  else if (it === 'SHEET') run(function* () { yield card('SHEET', SHEET); });
+  else if (it === 'REFLECTIONS') run(function* () { for (const r of REFLECTIONS) yield card('REFLECTION ' + r.title, r.lines); });
+  else if (it === 'CREDITS') run(function* () { yield card('CREDITS', CREDITS); });
+  else if (it === 'SAVE') { save(); run(function* () { yield say('Progress saved on this device.'); }); }
+  else if (it === 'SOUND') { MUTE = !MUTE; G.menuOpen = true; }
+}
+
+/* ---------- update ---------- */
+let B = null;
+function update() {
+  G.frame++;
+  if (G.fade) { tapq.length = 0; updateFade(); return; }
+  if (G.mode === 'title') { tapq.length = 0; updateTitle(); return; }
+  if (S.gen) { tapq.length = 0; updateScript(); return; }
+  if (G.menuOpen) { tapq.length = 0; updateMenu(); return; }
+  if (G.mode !== 'world') return;
+  if (hit('menu')) { G.menuOpen = true; G.menuIdx = 0; sfx(600, 0.05); return; }
+  if (G.mv) {
+    G.mv.t += 1.25;
+    if (G.mv.t >= 16) { G.x = G.mv.tx; G.y = G.mv.ty; G.mv = null; afterStep(); }
+    return;
+  }
+  if (hit('a')) { tryInteract(); return; }
+  let d = null;
+  for (const k of ['up', 'down', 'left', 'right']) { if (held[k]) { d = k; break; } }
+  if (d) tapq.length = 0; else if (tapq.length) d = tapq.shift();
+  if (d) {
+    G.dir = d;
+    const v = DIRS[d], tx = G.x + v[0], ty = G.y + v[1];
+    if (passable(tx, ty)) G.mv = { tx, ty, dx: v[0], dy: v[1], t: 0 };
+  }
+}
+function updateFade() {
+  const f = G.fade;
+  f.t += 1;
+  if (f.phase === 'out' && f.t >= 14) {
+    const w = f.to; G.map = w.map; G.x = w.x; G.y = w.y; G.dir = w.dir || 'down'; G.mv = null;
+    f.phase = 'in'; f.t = 0;
+  } else if (f.phase === 'in' && f.t >= 14) { G.fade = null; if (S.gen) advance(undefined); }
+}
+function updateTitle() {
+  if (hit('up') || hit('down')) { if (hasSave()) G.titleIdx = 1 - G.titleIdx; sfx(500, 0.04); }
+  if (hit('a')) {
+    sfx(700, 0.08);
+    if (G.titleIdx === 1 && hasSave()) continueGame(); else startNew();
+  }
+}
+function updateMenu() {
+  if (hit('menu') || hit('b')) { G.menuOpen = false; return; }
+  if (hit('up')) { G.menuIdx = (G.menuIdx + MENU_ITEMS.length - 1) % MENU_ITEMS.length; sfx(500, 0.03); }
+  if (hit('down')) { G.menuIdx = (G.menuIdx + 1) % MENU_ITEMS.length; sfx(500, 0.03); }
+  if (hit('a')) openMenuItem(G.menuIdx);
+}
+function updateScript() {
+  const c = S.cmd; if (!c) return;
+  S.t++;
+  if (B) { if (B.flash && --B.flash.t <= 0) B.flash = null; if (B.shake > 0) B.shake--; }
+  if (c.type === 'say') {
+    const tb = S.tb, page = tb.pages[tb.pi], total = page.join('').length;
+    if (tb.shown < total) {
+      const sp = held.a ? 3 : 1;
+      if (S.t % 2 === 0 || held.a) { tb.shown = Math.min(total, tb.shown + sp); if (tb.shown % 3 === 0) sfx(800, 0.015, 'square', 0.012); }
+      if (hit('a') || hit('b')) tb.shown = total;
+    } else if (hit('a') || hit('b')) {
+      if (tb.pi < tb.pages.length - 1) { tb.pi++; tb.shown = 0; } else { S.tb = null; advance(undefined); }
+    }
+  } else if (c.type === 'ask') {
+    const ch = S.ch;
+    if (hit('up')) ch.i = (ch.i + ch.opts.length - 1) % ch.opts.length;
+    if (hit('down')) ch.i = (ch.i + 1) % ch.opts.length;
+    if (hit('a')) { const v = ch.i; S.ch = null; advance(v); }
+  } else if (c.type === 'wait') {
+    if (S.t >= c.n) advance(undefined);
+  } else if (c.type === 'flash') {
+    if (S.t >= 22) advance(undefined);
+  } else if (c.type === 'card') {
+    const cd = S.card;
+    if (hit('left') && cd.pi > 0) cd.pi--;
+    if (hit('right') && cd.pi < cd.pages.length - 1) cd.pi++;
+    if (hit('a')) { if (cd.pi < cd.pages.length - 1) { cd.pi++; sfx(600, 0.03); } else { S.card = null; advance(undefined); } }
+    if (hit('b')) { S.card = null; advance(undefined); }
+  } else if (c.type === 'bmenu') {
+    if (hit('up') || hit('down') || hit('left') || hit('right')) { S.bm = 1 - S.bm; sfx(500, 0.03); }
+    if (hit('a')) advance(S.bm);
+  } else if (c.type === 'bmoves') {
+    const n = G.moves.length;
+    if (hit('up')) S.mv = (S.mv + n - 1) % n;
+    if (hit('down')) S.mv = (S.mv + 1) % n;
+    if (hit('a')) advance(G.moves[S.mv]);
+    if (hit('b')) advance(null);
+  } else if (c.type === 'warp') {
+    /* handled by fade */
+  }
+}
+
+/* ---------- drawing ---------- */
+function drawWorld() {
+  const m = curMap();
+  const ppx = G.x * TS + (G.mv ? G.mv.dx * G.mv.t : 0), ppy = G.y * TS + (G.mv ? G.mv.dy * G.mv.t : 0);
+  let cx = m.w * TS <= VW ? -(VW - m.w * TS) / 2 : Math.max(0, Math.min(m.w * TS - VW, ppx + 8 - VW / 2));
+  let cy = m.h * TS <= VH ? -(VH - m.h * TS) / 2 : Math.max(0, Math.min(m.h * TS - VH, ppy + 8 - VH / 2));
+  cx = Math.round(cx); cy = Math.round(cy);
+  rect(0, 0, VW, VH, 3);
+  const x0 = Math.max(0, Math.floor(cx / TS)), y0 = Math.max(0, Math.floor(cy / TS));
+  const x1 = Math.min(m.w - 1, Math.floor((cx + VW) / TS)), y1 = Math.min(m.h - 1, Math.floor((cy + VH) / TS));
+  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) drawTile(m.g[y][x], x * TS - cx, y * TS - cy, x, y);
+  const ents = m.npcs.map(n => ({ y: n.y * TS, draw: () => {
+    const bob = n.cheer ? -Math.abs(Math.round(Math.sin((G.frame + (n.phase || 0)) / 5) * 3)) : 0;
+    drawPerson(n.x * TS - cx, n.y * TS - cy - 2 + bob, n.dir, n.cheer ? (G.frame >> 3) : 0, n.look);
+  } }));
+  ents.push({ y: ppy, draw: () => drawPerson(Math.round(ppx) - cx, Math.round(ppy) - cy - 2, G.dir, G.mv ? Math.floor(G.mv.t / 4) : 0, QUINN) });
+  ents.sort((a, b) => a.y - b.y).forEach(e => e.draw());
+  if (m.name === 'tower' && G.flags.finished || (m.name === 'tower' && m.npcs.some(n => n.cheer))) {
+    for (let i = 0; i < 36; i++) {
+      const px = (i * 37 + G.frame * (0.4 + (i % 3) * 0.3)) % VW, py = (i * 53 + G.frame * (0.8 + (i % 2) * 0.5)) % VH;
+      rect(Math.floor(px), Math.floor(py), 2, 2, [1, 2, 3][i % 3]);
+    }
+  }
+}
+function drawTextbox() {
+  const tb = S.tb; if (!tb) return;
+  box(4, 100, 152, 41);
+  const page = tb.pages[tb.pi]; let left = tb.shown;
+  page.forEach((ln, i) => { const s = ln.slice(0, Math.max(0, left)); left -= ln.length; text(s, 8, 105 + i * 10, 3); });
+  if (tb.shown >= page.join('').length && (G.frame >> 4) % 2 === 0) rect(147, 134, 5, 3, 3);
+  if (tb.who) { const w = Math.max(30, tb.who.length * 4.4 + 10); rect(8, 92, w, 10, 3); rect(9, 93, w - 2, 8, 0); text(tb.who, 12, 94, 3, 'left', 6); }
+}
+function drawChoice() {
+  const ch = S.ch; if (!ch) return;
+  const h = 14 + ch.opts.length * 11 + 8;
+  box(4, 100 - h - 2, 152, h);
+  text(ch.q, 10, 100 - h + 4, 3);
+  ch.opts.forEach((o, i) => { text((i === ch.i ? '> ' : '  ') + o, 10, 100 - h + 16 + i * 11, 3); });
+}
+function drawCard() {
+  const cd = S.card; if (!cd) return;
+  rect(0, 0, VW, VH, 0); box(2, 2, 156, 140);
+  rect(4, 4, 152, 11, 3); text(cd.title, 8, 6, 0);
+  cd.pages[cd.pi].forEach((ln, i) => text(ln, 8, 19 + i * 10, 3));
+  text((cd.pi + 1) + '/' + cd.pages.length, 152, 132, 2, 'right', 6);
+  text(cd.pi < cd.pages.length - 1 ? 'A: next' : 'A: close', 8, 132, 2, 'left', 6);
+}
+function drawMenu() {
+  box(92, 4, 64, MENU_ITEMS.length * 11 + 8);
+  MENU_ITEMS.forEach((it, i) => {
+    const label = it === 'SOUND' ? 'SOUND ' + (MUTE ? 'OFF' : 'ON') : it;
+    text((i === G.menuIdx ? '>' : ' ') + label, 96, 9 + i * 11, 3);
+  });
+  const nb = G.badges.length;
+  box(4, 4, 80, 30); text('BADGES ' + nb + '/5', 8, 8, 3); text('MOVES ' + G.moves.length, 8, 18, 3);
+}
+function drawBattle() {
+  rect(0, 0, VW, VH, 0);
+  rect(0, 62, VW, 2, 1);
+  let sx = 0, sy = 0;
+  if (B.shake > 0) { sx = (B.shake % 2 ? 2 : -2); sy = 0; }
+  ctx.save(); ctx.translate(sx, sy);
+  // enemy
+  box(4, 4, 84, 26); text(B.b.name, 9, 8, 3);
+  text('RESIST', 9, 18, 3, 'left', 6); B.hpShow += (B.hp - B.hpShow) * 0.15; bar(36, 19, 46, B.hpShow, B.max);
+  const eflash = B.flash && B.flash.who === 'enemy' && (B.flash.t % 6 < 3);
+  if (!eflash) {
+    rect(96, 58, 56, 3, 1);
+    drawBossArt(B.b.art, 100, 8);
+  }
+  // player
+  const pflash = B.flash && B.flash.who === 'player' && (B.flash.t % 6 < 3);
+  if (!pflash) { ctx.save(); ctx.translate(14, 51); ctx.scale(3, 3); drawPerson(0, 0, 'up', 0, QUINN); ctx.restore(); }
+  box(78, 66, 80, 26); text(CAST.P, 83, 70, 3);
+  text('RESOLVE', 83, 80, 3, 'left', 6); B.phpShow += (B.php - B.phpShow) * 0.15; bar(113, 81, 40, B.phpShow, maxHp());
+  text(Math.max(0, Math.round(B.phpShow)) + '/' + maxHp(), 153, 70, 3, 'right', 6);
+  ctx.restore();
+}
+function drawBattleMenus() {
+  const c = S.cmd; if (!c) return;
+  if (c.type === 'bmenu') {
+    box(4, 100, 80, 41); text('What will', 10, 106, 3); text('{P} do?'.replace('{P}', CAST.P), 10, 116, 3);
+    box(84, 100, 72, 41);
+    ['FIGHT', 'THINK'].forEach((o, i) => text((S.bm === i ? '> ' : '  ') + o, 96, 108 + i * 14, 3));
+  } else if (c.type === 'bmoves') {
+    box(4, 40, 152, 101);
+    const n = G.moves.length, top = Math.max(0, Math.min(n - 5, S.mv - 2));
+    for (let i = 0; i < Math.min(5, n); i++) {
+      const id = G.moves[top + i], sel = top + i === S.mv;
+      text((sel ? '> ' : '  ') + MOVES[id].name, 10, 46 + i * 10, 3);
+    }
+    rect(8, 98, 144, 1, 2);
+    wrap(MOVES[G.moves[S.mv]].desc, 144, 6).slice(0, 3).forEach((ln, i) => text(ln, 10, 102 + i * 9, 2, 'left', 6));
+    text('B: back', 150, 130, 2, 'right', 6);
+  }
+}
+function drawTitle() {
+  rect(0, 0, VW, VH, 0);
+  for (let i = 0; i < 16; i++) rect(i * 10, 118 + (i % 2) * 3, 10, 26, i % 2 ? 1 : 2);
+  rect(0, 112, VW, 6, 3);
+  text(CAST.GAME, 80, 22, 3, 'center', 14);
+  text('A PERSONAL STRATEGIC', 80, 44, 2, 'center', 7);
+  text('LEADERSHIP PLAN', 80, 53, 2, 'center', 7);
+  drawPerson(72, 74, 'down', (G.frame >> 4), QUINN);
+  const items = hasSave() ? ['NEW GAME', 'CONTINUE'] : ['PRESS A TO START'];
+  items.forEach((it, i) => text((items.length > 1 && G.titleIdx === i ? '> ' : '') + it, 80, 94 + i * 10, 3, 'center', 7));
+  text('by ' + CAST.AUTHOR, 80, 134, 0, 'center', 6);
+}
+function draw() {
+  ctx.setTransform(4, 0, 0, 4, 0, 0);
+  ctx.imageSmoothingEnabled = false;
+  if (G.mode === 'title') { drawTitle(); }
+  else if (G.mode === 'battle' && B) { drawBattle(); drawBattleMenus(); drawTextbox(); drawChoice(); }
+  else {
+    drawWorld();
+    if (S.card) drawCard();
+    drawTextbox(); drawChoice();
+    if (G.menuOpen) drawMenu();
+  }
+  if (G.mode === 'battle' && S.card) drawCard();
+  if (G.fade) {
+    const a = G.fade.phase === 'out' ? G.fade.t / 14 : 1 - G.fade.t / 14;
+    ctx.globalAlpha = Math.max(0, Math.min(1, a)); rect(0, 0, VW, VH, 3); ctx.globalAlpha = 1;
+  }
+}
+
+/* ---------- main loop ---------- */
+let last = 0, acc = 0;
+function frame(t) {
+  acc += Math.min(100, t - last); last = t;
+  while (acc >= 1000 / 60) { update(); for (const k in hitq) hitq[k] = false; acc -= 1000 / 60; }
+  draw();
+  requestAnimationFrame(frame);
+}
+buildWorld();
+window.__TQ = { G, S, update, draw, press, release, hit, startNew, continueGame, BOSSES, MOVES, MAPS, get B() { return B; }, run, fmt };
+requestAnimationFrame(t => { last = t; frame(t); });
+</script>
+</body>
+</html>
